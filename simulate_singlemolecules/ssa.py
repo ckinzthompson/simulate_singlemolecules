@@ -23,7 +23,7 @@ def steady_state(Q):
 	return P_ss
 
 
-def gen_dwells(rates,tlength,seed):
+def gen_dwells(rates,tlength):
 	'''
 	Input:
 		* `rates` is a KxK np.ndarray of the rate constants for transitions between states i and j. It should have zeros on the diagonals
