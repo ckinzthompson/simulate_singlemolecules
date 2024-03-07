@@ -5,15 +5,25 @@ import numba as nb
 ######### SSA
 ################################################################################
 
-def steady_state(q):
+def steady_state(Q):
 	'''
 	Calculates the steady state probabilities the states from a Q matrix
 	'''
-	from scipy.linalg import expm
-	tinf = 1000./np.abs(q).min()
-	return expm(q*tinf)[0]
+	
+	## Calculate the Eigenvalues and Eigenvectors of Q^T
+	D,P = np.linalg.eig(Q.T)
+	
+	## Get the eigenvector with eigenvalue of 0.0 (if a TM, it'd be 1...)
+	eigenval_index = np.where(D==0.0)[0][0]
+	P_ss = P[:,eigenval_index]
 
-def gen_dwells(rates,tlength):
+	## Normalize the eigenvector from a basis vector into a probability
+	P_ss /= P_ss.sum()
+
+	return P_ss
+
+
+def gen_dwells(rates,tlength,seed):
 	'''
 	Input:
 		* `rates` is a KxK np.ndarray of the rate constants for transitions between states i and j. It should have zeros on the diagonals
@@ -23,13 +33,18 @@ def gen_dwells(rates,tlength):
 	'''
 	np.random.seed()
 
+	## create Q matrix from K matrix
 	q = rates.copy()
 	for i in range(q.shape[0]):
 		q[i,i] = - q[i].sum()
+
 	pst = steady_state(q)
 
+	## find intial state
 	p = np.random.rand()
 	initial_state = np.searchsorted(pst.cumsum(),p)
+	
+	## simulate trajectory
 	traj = ssa(tlength,initial_state,rates)
 	return traj
 
@@ -38,7 +53,8 @@ def ssa(tlength,initial_state,rates):
 
 	nstates = rates.shape[0]
 	steps = 2*int(np.floor(tlength*np.max(rates)))
-	if steps < 10: steps = 10
+	if steps < 10:
+		steps = 10
 
 	states_dwells = np.zeros((2,steps), dtype=np.double)
 
@@ -196,8 +212,8 @@ def test():
 		p[i] = (trajectory[1][trajectory[0] == i]).sum()
 	p /= p.sum()
 
-	print 'Steady State:',steady_state(q)
-	print 'Simulation  :',p
+	print('Steady State:',steady_state(q))
+	print('Simulation  :',p)
 
 	stop = np.min((nframes,2000))
 
