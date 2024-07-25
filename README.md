@@ -5,7 +5,7 @@ Simulate single molecule trajectories
 ``` sh
 git clone https://github.com/ckinzthompson/simulate_singlemolecules.git
 cd biasd
-pip install
+pip install ./
 ```
 
 ## Functions
