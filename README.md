@@ -3,7 +3,7 @@ Simulate single molecule trajectories
 
 ## Install
 ``` sh
-git clone https://github.com/ckinzthompson/biasd.git
+git clone https://github.com/ckinzthompson/simulate_singlemolecules.git
 cd biasd
 pip install
 ```
