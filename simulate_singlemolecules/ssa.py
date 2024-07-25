@@ -1,35 +1,19 @@
 import numpy as np
 import numba as nb
 
-################################################################################
-######### SSA
-################################################################################
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, message="FNV hashing is not implemented in Numba")
 
-def steady_state(Q):
+def _gen_dwells(rates,tlength):
 	'''
-	Calculates the steady state probabilities the states from a Q matrix
-	'''
+	Generates dwell times for a given rate matrix and total time length.
 	
-	## Calculate the Eigenvalues and Eigenvectors of Q^T
-	D,P = np.linalg.eig(Q.T)
+	Parameters:
+	rates (np.ndarray): A KxK array of rate constants for transitions between states. It should have zeros on the diagonals
+	tlength (float): Total time length of the trajectory.
 	
-	## Get the eigenvector with eigenvalue of 0.0 (if a TM, it'd be 1...)
-	eigenval_index = np.where(D==0.0)[0][0]
-	P_ss = P[:,eigenval_index]
-
-	## Normalize the eigenvector from a basis vector into a probability
-	P_ss /= P_ss.sum()
-
-	return P_ss
-
-
-def gen_dwells(rates,tlength):
-	'''
-	Input:
-		* `rates` is a KxK np.ndarray of the rate constants for transitions between states i and j. It should have zeros on the diagonals
-		* `tlength` is a float/double that specifies the total time of the trajectory
-	Output
-		* a 2xN np.ndarray of states indices (0) and the corresponding dwell times (1)
+	Returns:
+	np.ndarray: A 2xN array of state indices (0) and corresponding dwell times (1).
 	'''
 	np.random.seed()
 
@@ -45,11 +29,22 @@ def gen_dwells(rates,tlength):
 	initial_state = np.searchsorted(pst.cumsum(),p)
 	
 	## simulate trajectory
-	traj = ssa(tlength,initial_state,rates)
+	traj = _ssa(tlength,initial_state,rates)
 	return traj
 
 @nb.njit
-def ssa(tlength,initial_state,rates):
+def _ssa(tlength,initial_state,rates):
+	'''
+	Stochastic simulation algorithm for generating state trajectories.
+
+	Parameters:
+	tlength (float): Total time of the trajectory.
+	initial_state (int): Initial state index.
+	rates (np.ndarray): A KxK array of rate constants for transitions between states. It should have zeros on the diagonals
+
+	Returns:
+	np.ndarray: A 2xN array of state indices (0) and corresponding dwell times (1).
+	'''
 
 	nstates = rates.shape[0]
 	steps = 2*int(np.floor(tlength*np.max(rates)))
@@ -97,12 +92,8 @@ def ssa(tlength,initial_state,rates):
 	# 	dwells = [tlength]
 	return states_dwells[:,:i+1]
 
-################################################################################
-######### Signal
-################################################################################
-
 @nb.njit
-def render_trajectory(trajectory,steps,dt,emission):
+def _render_trajectory(trajectory,steps,dt,emission):
 	'''
 	Input:
 		* `trajectory` is the 2xM output from the `ssa_dwells` function
@@ -124,6 +115,7 @@ def render_trajectory(trajectory,steps,dt,emission):
 	b = 0
 
 	out = np.zeros((2,steps))
+
 	for i in range(steps):
 		out[0,i] = (i+1)*dt
 		t1 = out[0,i]
@@ -151,87 +143,95 @@ def render_trajectory(trajectory,steps,dt,emission):
 	return out
 
 ################################################################################
-######### Simulate
+######### Callable Functions
 ################################################################################
+
+
+def steady_state(Q):
+	'''
+	Calculates the steady state probabilities the states from a Q matrix
+
+	Parameters:
+	Q (np.ndarray): A square matrix of transition rates between states.
+
+	Returns:
+	np.ndarray: Steady state probabilities of each state.
+	'''
+	
+	## Calculate the Eigenvalues and Eigenvectors of Q^T
+	D,P = np.linalg.eig(Q.T)
+	
+	## Get the eigenvector with eigenvalue of 0.0 (if a TM, it'd be 1...)
+	eigenval_index = np.where(D==0.0)[0][0]
+	P_ss = P[:,eigenval_index]
+
+	## Normalize the eigenvector from a basis vector into a probability
+	P_ss /= P_ss.sum()
+
+	return P_ss
+
+
 
 def simulate_single(rates,emissions,noise,nframes,dt):
 	'''
-	Input:
-		* `rates` is a KxK np.ndarray of the rate constants for transitions between states i and j. It should have zeros on the diagonals
-		* `emissions` is a np.ndarray of length K with the emission means of each state
-		* `noise` is a float with the standard deviation of the normal distribution used to add noise to the signal
-		* `nframes` is an integer number of datapoints in the signal versus time trajectory
-		* `dt` is the time period of each datapoint
-	Output:
-		* `trajectory` is a 2xN np.ndarray of states indices (0) and the corresponding dwell times (1) of the state trajectory
-		* `signal` is a 2x`nframes` np.ndarray containing the time points (0) and the signal values (1) of the rendered signal trajectory
+	Simulates a single trajectory with given rates, emissions, and noise.
+
+	Parameters:
+	rates (np.ndarray): A KxK array of rate constants for transitions between states. It should have zeros on the diagonals
+	emissions (np.ndarray): Emission means for each state. K-sized array
+	noise (float): Standard deviation of the normal distribution used to add noise. K-sized array
+	nframes (int): Number of data points in the signal vs. time trajectory.
+	dt (float): Time period of each data point.
 	'''
 
 	np.random.seed()
-	trajectory = gen_dwells(rates,nframes*dt)
-	signal = render_trajectory(trajectory,nframes,dt,emissions)
+	trajectory = _gen_dwells(rates,nframes*dt)
+	signal = _render_trajectory(trajectory,nframes,dt,emissions)
 	signal[1] += np.random.normal(size=signal.shape[1])*noise
 	return trajectory,signal
 
 def simulate_ensemble(rates,emissions,noise,nframes,dt,nmol):
+	'''
+	Simulates an ensemble of trajectories.
+
+	Parameters:
+	rates (np.ndarray): A KxK array of rate constants for transitions between states. It should have zeros on the diagonals
+	emissions (np.ndarray): Emission means for each state. K-sized array
+	noise (float): Standard deviation of the normal distribution used to add noise. K-sized array
+	nframes (int): Number of data points in the signal vs. time trajectory.
+	dt (float): Time period of each data point.
+	nmol (int): Number of molecules to simulate.
+
+	Returns:
+	trajectories (np.ndarray): An nmol x nframes array of simulated signal values.
+	'''
+
 	out = np.zeros((nmol,nframes))
 	for i in range(nmol):
 		trajectory,signal = simulate_single(rates,emissions,noise,nframes,dt)
 		out[i] = signal[1]
 	return out
 
-def simulate_fret(rates,emissions,noise,nframes,dt,nmol):
-	out = np.zeros((nmol*2,nframes))
+def simulate_fret(rates,emissions,noise,nframes,dt,nmol,nphotons=5000.):
+	'''
+	Simulates FRET signals for an ensemble of molecules.
+
+	Parameters:
+	rates (np.ndarray): A KxK array of rate constants for transitions between states. It should have zeros on the diagonals
+	emissions (np.ndarray): Emission means for each state. K-sized array
+	noise (float): Standard deviation of the normal distribution used to add noise. K-sized array
+	nframes (int): Number of data points in the signal vs. time trajectory.
+	dt (float): Time period of each data point.
+	nmol (int): Number of molecules to simulate.
+
+	Returns:
+	fret (np.ndarray): A (nmol,2,nframes) array of simulated FRET signal values.
+	'''
+	
+	out = np.zeros((nmol,2,nframes))
 	for i in range(nmol):
 		trajectory,signal = simulate_single(rates,emissions,noise,nframes,dt)
-		out[i*2+1] = 5000.*signal[1]
-		out[i*2] = 5000.*(1.-signal[1])
+		out[i,0] = nphotons*signal[1]
+		out[i,1] = nphotons*(1.-signal[1])
 	return out.T
 
-def test():
-	'''
-	Tries to simulate a trajectory and make a plot
-	'''
-
-	import matplotlib.pyplot as plt
-
-	# rates = np.array(([0,10.,2.],[2.,0,2.],[1.5,2.,0]))
-	# emissions = np.array((0.,1.,2.))
-	rates = np.array(([[0,3.],[8.,0.]]))
-	emissions = np.array((0.,1.))
-	noise = 0.05 # SNR = 20
-	nframes = 1000000
-	dt = .001 # 500 msec
-
-	trajectory,signal = simulate_single(rates,emissions,noise,nframes,dt)
-
-	q = rates.copy()
-	p = np.zeros(q.shape[0])
-	for i in range(q.shape[0]):
-		q[i,i] = -q[i].sum()
-		p[i] = (trajectory[1][trajectory[0] == i]).sum()
-	p /= p.sum()
-
-	print('Steady State:',steady_state(q))
-	print('Simulation  :',p)
-
-	stop = np.min((nframes,2000))
-
-	tt = np.zeros(trajectory.shape[1]*2)
-	tt[::2] = trajectory[1].cumsum()
-	tt[1::2] = trajectory[1].cumsum()
-	yy = np.zeros(trajectory.shape[1]*2)
-	yy[::2] = trajectory[0]
-	yy[1::2] = np.roll(trajectory[0],-1)
-
-	plt.plot(tt[:-1],yy[:-1],alpha=.8)
-	plt.plot(signal[0,:stop],signal[1,:stop],'o',alpha=.5)
-	plt.xlim(0,signal[0,stop-1])
-
-	plt.xlabel('Time',fontsize=12)
-	plt.ylabel('Signal',fontsize=12)
-	plt.title('Blurred SSA Trajectory',fontsize=16)
-	plt.show()
-
-if __name__ == '__main__':
-	test()
