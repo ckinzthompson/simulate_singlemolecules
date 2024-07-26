@@ -235,3 +235,12 @@ def simulate_fret(rates,emissions,noise,nframes,dt,nmol,nphotons=5000.):
 		out[i,1] = nphotons*(1.-signal[1])
 	return out.T
 
+def testdata():
+	return simulate_ensemble(
+		np.array(((0.,3.),(8.,0))),
+		np.array((0.,1.)),
+		0.05,
+		1000,
+		0.1,
+		10
+	)
