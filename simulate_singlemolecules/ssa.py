@@ -162,7 +162,9 @@ def steady_state(Q):
 	D,P = np.linalg.eig(Q.T)
 	
 	## Get the eigenvector with eigenvalue of 0.0 (if a TM, it'd be 1...)
-	eigenval_index = np.where(D==0.0)[0][0]
+	## Note, numerical issues mean you can get O(10^-16) values. Use 10 fold as a heuristic padding.
+	cutoff = np.finfo(np.float64).eps*10.0
+	eigenval_index = np.where(np.abs(D)<cutoff)[0][0]
 	P_ss = P[:,eigenval_index]
 
 	## Normalize the eigenvector from a basis vector into a probability
@@ -235,12 +237,12 @@ def simulate_fret(rates,emissions,noise,nframes,dt,nmol,nphotons=5000.):
 		out[i,1] = nphotons*(1.-signal[1])
 	return out.T
 
-def testdata():
+def testdata(nmol=10,nt=1000):
 	return simulate_ensemble(
 		np.array(((0.,3.),(8.,0))),
 		np.array((0.,1.)),
 		0.05,
-		1000,
+		nt,
 		0.1,
-		10
+		nmol
 	)
